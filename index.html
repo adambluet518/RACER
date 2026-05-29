@@ -1,0 +1,51 @@
+// === File: index.html ===
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Nitro Racer</title>
+    <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+    <div id="game-container">
+        <!-- Start Screen -->
+        <div id="start-screen" class="overlay">
+            <h1>NITRO RACER</h1>
+            <p>Press SPACE to Start</p>
+            <div class="controls-info">
+                <p><strong>Controls:</strong></p>
+                <p>A / D or Arrow Keys – Steer</p>
+                <p>SHIFT – Nitro Boost</p>
+            </div>
+        </div>
+
+        <!-- Game Over Screen -->
+        <div id="gameover-screen" class="overlay hidden">
+            <h2>CRASHED!</h2>
+            <p id="final-score">Score: 0</p>
+            <p>Press SPACE to Restart</p>
+        </div>
+
+        <!-- HUD -->
+        <div id="hud" class="hidden">
+            <div id="speed">Speed: 0 km/h</div>
+            <div id="nitro-bar-container">
+                <div id="nitro-bar"></div>
+            </div>
+            <div id="score">Score: 0</div>
+        </div>
+    </div>
+
+    <!-- Three.js Import Map -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.152.0/build/three.module.js"
+            }
+        }
+    </script>
+
+    <script type="module" src="main.js"></script>
+</body>
+</html>
