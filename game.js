@@ -1,6 +1,15 @@
 // === File: game.js ===
 import * as THREE from 'three';
 
+// Dynamically import GLTFLoader to avoid crashes if it fails
+let GLTFLoader = null;
+try {
+    const addon = await import('three/addons/loaders/GLTFLoader.js');
+    GLTFLoader = addon.GLTFLoader;
+} catch (e) {
+    console.warn('GLTFLoader not available, using fallback models');
+}
+
 export class Game {
     constructor() {
         // DOM elements
@@ -13,7 +22,7 @@ export class Game {
         this.finalScoreEl = document.getElementById('final-score');
 
         // Game state
-        this.state = 'start'; // 'start', 'playing', 'gameover'
+        this.state = 'start';
         this.score = 0;
         this.playerX = 0;
         this.targetLane = 0;
@@ -46,18 +55,8 @@ export class Game {
         this.dirLight = null;
 
         // Asset loading
-        this.loader = new THREE.GLTFLoader();
+        this.gltfLoader = GLTFLoader ? new GLTFLoader() : null;
         this.textureLoader = new THREE.TextureLoader();
-        this.loadedModels = {
-            player: null,
-            ai: [] // array of 4 AI car models
-        };
-        this.loadedTextures = {
-            road: null,
-            boostPad: null,
-            nitroFlame: null,
-            skybox: null
-        };
         this.assetsLoaded = false;
 
         // Input
@@ -68,15 +67,18 @@ export class Game {
         this._onResize = this._onResize.bind(this);
     }
 
-    async init() {
-        this._setupScene();
-        this._setupLighting();
-        await this._loadAssets();
-        this._setupRoad();
-        this._createPlayerCar();
-        this._setupInput();
-        this._setupResize();
-        this.animate();
+    init() {
+        try {
+            this._setupScene();
+            this._setupLighting();
+            this._setupRoad();
+            this._createPlayerCar();
+            this._setupInput();
+            this._setupResize();
+            this.animate();
+        } catch (error) {
+            console.error('Game initialization error:', error);
+        }
     }
 
     _setupScene() {
@@ -118,226 +120,162 @@ export class Game {
         this.scene.add(this.dirLight);
     }
 
-    async _loadAssets() {
-        // Try to load skybox
-        try {
-            const skyboxPaths = [
-                'skybox_right.png', 'skybox_left.png',
-                'skybox_top.png', 'skybox_bottom.png',
-                'skybox_front.png', 'skybox_back.png'
-            ];
-            const cubeLoader = new THREE.CubeTextureLoader();
-            this.loadedTextures.skybox = await new Promise((resolve) => {
-                cubeLoader.load(skyboxPaths, resolve, undefined, () => resolve(null));
-            });
-            if (this.loadedTextures.skybox) {
-                this.scene.background = this.loadedTextures.skybox;
-            }
-        } catch (e) {
-            console.log('Skybox not found, using default background');
-        }
-
-        // Try to load road texture
-        try {
-            this.loadedTextures.road = await new Promise((resolve) => {
-                this.textureLoader.load('road_asphalt.png', resolve, undefined, () => resolve(null));
-            });
-        } catch (e) {
-            console.log('Road texture not found, using procedural');
-        }
-
-        // Try to load boost pad sprite
-        try {
-            this.loadedTextures.boostPad = await new Promise((resolve) => {
-                this.textureLoader.load('boost_pad.png', resolve, undefined, () => resolve(null));
-            });
-        } catch (e) {
-            console.log('Boost pad sprite not found, using procedural');
-        }
-
-        // Try to load nitro flame sprite sheet
-        try {
-            this.loadedTextures.nitroFlame = await new Promise((resolve) => {
-                this.textureLoader.load('nitro_flame.png', resolve, undefined, () => resolve(null));
-            });
-        } catch (e) {
-            console.log('Nitro flame sprite not found, using placeholder');
-        }
-
-        // Try to load player car model
-        try {
-            this.loadedModels.player = await new Promise((resolve) => {
-                this.loader.load('player_car.glb', resolve, undefined, () => resolve(null));
-            });
-        } catch (e) {
-            console.log('Player car model not found, using placeholder');
-        }
-
-        // Try to load AI car models
-        const aiColors = ['blue', 'green', 'yellow', 'purple'];
-        for (const color of aiColors) {
-            try {
-                const model = await new Promise((resolve) => {
-                    this.loader.load(`ai_car_${color}.glb`, resolve, undefined, () => resolve(null));
-                });
-                this.loadedModels.ai.push(model);
-            } catch (e) {
-                console.log(`AI car ${color} model not found, using placeholder`);
-                this.loadedModels.ai.push(null);
-            }
-        }
-
-        this.assetsLoaded = true;
-    }
-
     _setupRoad() {
-        if (this.loadedTextures.road) {
-            // Use loaded road texture
-            this.loadedTextures.road.wrapS = THREE.RepeatWrapping;
-            this.loadedTextures.road.wrapT = THREE.RepeatWrapping;
-            this.loadedTextures.road.repeat.set(1, 4);
-            const roadGeo = new THREE.PlaneGeometry(20, 200);
-            const roadMat = new THREE.MeshStandardMaterial({
-                map: this.loadedTextures.road,
-                roughness: 0.8,
-                metalness: 0.1
-            });
-            this.roadMesh = new THREE.Mesh(roadGeo, roadMat);
-            this.roadTexture = this.loadedTextures.road;
-        } else {
-            // Fallback procedural texture
-            const canvas = document.createElement('canvas');
-            canvas.width = 512;
-            canvas.height = 512;
-            const ctx = canvas.getContext('2d');
-            ctx.fillStyle = '#4a4a4a';
-            ctx.fillRect(0, 0, 512, 512);
-            for (let i = 0; i < 2000; i++) {
-                const x = Math.random() * 512;
-                const y = Math.random() * 512;
-                const shade = 70 + Math.random() * 30;
-                ctx.fillStyle = `rgb(${shade},${shade},${shade})`;
-                ctx.fillRect(x, y, 2, 2);
-            }
-            ctx.strokeStyle = '#ffffff';
-            ctx.lineWidth = 6;
-            ctx.setLineDash([30, 40]);
-            ctx.beginPath();
-            ctx.moveTo(170, 0);
-            ctx.lineTo(170, 512);
-            ctx.stroke();
-            ctx.beginPath();
-            ctx.moveTo(342, 0);
-            ctx.lineTo(342, 512);
-            ctx.stroke();
-            ctx.setLineDash([]);
-            ctx.lineWidth = 10;
-            ctx.beginPath();
-            ctx.moveTo(20, 0);
-            ctx.lineTo(20, 512);
-            ctx.stroke();
-            ctx.beginPath();
-            ctx.moveTo(492, 0);
-            ctx.lineTo(492, 512);
-            ctx.stroke();
-            this.roadTexture = new THREE.CanvasTexture(canvas);
-            this.roadTexture.wrapS = THREE.RepeatWrapping;
-            this.roadTexture.wrapT = THREE.RepeatWrapping;
-            this.roadTexture.repeat.set(1, 4);
-            const roadGeo = new THREE.PlaneGeometry(20, 200);
-            const roadMat = new THREE.MeshStandardMaterial({
-                map: this.roadTexture,
-                roughness: 0.8,
-                metalness: 0.1
-            });
-            this.roadMesh = new THREE.Mesh(roadGeo, roadMat);
+        // Always use procedural road first for reliability
+        const canvas = document.createElement('canvas');
+        canvas.width = 512;
+        canvas.height = 512;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#4a4a4a';
+        ctx.fillRect(0, 0, 512, 512);
+        for (let i = 0; i < 2000; i++) {
+            const x = Math.random() * 512;
+            const y = Math.random() * 512;
+            const shade = 70 + Math.random() * 30;
+            ctx.fillStyle = `rgb(${shade},${shade},${shade})`;
+            ctx.fillRect(x, y, 2, 2);
         }
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 6;
+        ctx.setLineDash([30, 40]);
+        ctx.beginPath();
+        ctx.moveTo(170, 0);
+        ctx.lineTo(170, 512);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(342, 0);
+        ctx.lineTo(342, 512);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.lineWidth = 10;
+        ctx.beginPath();
+        ctx.moveTo(20, 0);
+        ctx.lineTo(20, 512);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(492, 0);
+        ctx.lineTo(492, 512);
+        ctx.stroke();
+        
+        this.roadTexture = new THREE.CanvasTexture(canvas);
+        this.roadTexture.wrapS = THREE.RepeatWrapping;
+        this.roadTexture.wrapT = THREE.RepeatWrapping;
+        this.roadTexture.repeat.set(1, 4);
+        
+        const roadGeo = new THREE.PlaneGeometry(20, 200);
+        const roadMat = new THREE.MeshStandardMaterial({
+            map: this.roadTexture,
+            roughness: 0.8,
+            metalness: 0.1
+        });
+        this.roadMesh = new THREE.Mesh(roadGeo, roadMat);
         this.roadMesh.rotation.x = -Math.PI / 2;
         this.roadMesh.position.y = -0.6;
         this.roadMesh.receiveShadow = true;
         this.scene.add(this.roadMesh);
+
+        // Try to load custom road texture asynchronously
+        if (this.textureLoader) {
+            this.textureLoader.load(
+                'road_asphalt.png',
+                (texture) => {
+                    texture.wrapS = THREE.RepeatWrapping;
+                    texture.wrapT = THREE.RepeatWrapping;
+                    texture.repeat.set(1, 4);
+                    this.roadTexture = texture;
+                    this.roadMesh.material.map = texture;
+                    this.roadMesh.material.needsUpdate = true;
+                },
+                undefined,
+                () => console.log('Custom road texture not found, using procedural')
+            );
+        }
     }
 
     _createPlayerCar() {
         this.playerGroup = new THREE.Group();
 
-        if (this.loadedModels.player) {
-            // Use loaded GLB model
-            const model = this.loadedModels.player.scene.clone();
-            model.traverse((node) => {
-                if (node.isMesh) {
-                    node.castShadow = true;
-                    node.receiveShadow = true;
-                }
-            });
-            this.playerGroup.add(model);
-        } else {
-            // Fallback placeholder car
-            const bodyGeo = new THREE.BoxGeometry(1.6, 0.6, 4);
-            const bodyMat = new THREE.MeshStandardMaterial({ color: 0xff2222, roughness: 0.3, metalness: 0.7 });
-            const body = new THREE.Mesh(bodyGeo, bodyMat);
-            body.castShadow = true;
-            body.receiveShadow = true;
-            body.position.y = 0.3;
-            this.playerGroup.add(body);
+        // Create fallback car immediately
+        const bodyGeo = new THREE.BoxGeometry(1.6, 0.6, 4);
+        const bodyMat = new THREE.MeshStandardMaterial({ color: 0xff2222, roughness: 0.3, metalness: 0.7 });
+        const body = new THREE.Mesh(bodyGeo, bodyMat);
+        body.castShadow = true;
+        body.receiveShadow = true;
+        body.position.y = 0.3;
+        body.name = 'fallback_body';
+        this.playerGroup.add(body);
 
-            const cabinGeo = new THREE.BoxGeometry(1.4, 0.4, 2);
-            const cabinMat = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.2, metalness: 0.9 });
-            const cabin = new THREE.Mesh(cabinGeo, cabinMat);
-            cabin.position.set(0, 0.65, -0.2);
-            cabin.castShadow = true;
-            this.playerGroup.add(cabin);
+        const cabinGeo = new THREE.BoxGeometry(1.4, 0.4, 2);
+        const cabinMat = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.2, metalness: 0.9 });
+        const cabin = new THREE.Mesh(cabinGeo, cabinMat);
+        cabin.position.set(0, 0.65, -0.2);
+        cabin.castShadow = true;
+        cabin.name = 'fallback_cabin';
+        this.playerGroup.add(cabin);
 
-            const wheelGeo = new THREE.CylinderGeometry(0.35, 0.35, 0.3, 16);
-            const wheelMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.8 });
-            const positions = [
-                [-0.85, -0.15, 1.3],
-                [0.85, -0.15, 1.3],
-                [-0.85, -0.15, -1.3],
-                [0.85, -0.15, -1.3]
-            ];
-            positions.forEach(pos => {
-                const wheel = new THREE.Mesh(wheelGeo, wheelMat);
-                wheel.rotation.z = Math.PI / 2;
-                wheel.position.set(pos[0], pos[1], pos[2]);
-                wheel.castShadow = true;
-                wheel.receiveShadow = true;
-                this.playerGroup.add(wheel);
-            });
-        }
+        const wheelGeo = new THREE.CylinderGeometry(0.35, 0.35, 0.3, 16);
+        const wheelMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.8 });
+        const positions = [
+            [-0.85, -0.15, 1.3],
+            [0.85, -0.15, 1.3],
+            [-0.85, -0.15, -1.3],
+            [0.85, -0.15, -1.3]
+        ];
+        positions.forEach(pos => {
+            const wheel = new THREE.Mesh(wheelGeo, wheelMat);
+            wheel.rotation.z = Math.PI / 2;
+            wheel.position.set(pos[0], pos[1], pos[2]);
+            wheel.castShadow = true;
+            wheel.receiveShadow = true;
+            wheel.name = 'fallback_wheel';
+            this.playerGroup.add(wheel);
+        });
 
-        // Create nitro flame
-        if (this.loadedTextures.nitroFlame) {
-            // Use sprite sheet for animated flame
-            const flameGeo = new THREE.PlaneGeometry(1.5, 2);
-            const flameMat = new THREE.SpriteMaterial({
-                map: this.loadedTextures.nitroFlame,
-                blending: THREE.AdditiveBlending,
-                transparent: true,
-                opacity: 0.8,
-                depthWrite: false
-            });
-            this.nitroFlame = new THREE.Sprite(flameMat);
-            this.nitroFlame.position.set(0, 0.5, -2.5);
-            this.nitroFlame.scale.set(1.5, 2, 1);
-        } else {
-            // Fallback cone flame
-            const flameGeo = new THREE.ConeGeometry(0.5, 1.2, 8);
-            const flameMat = new THREE.MeshBasicMaterial({
-                color: 0xff6600,
-                transparent: true,
-                opacity: 0.9,
-                blending: THREE.AdditiveBlending
-            });
-            this.nitroFlame = new THREE.Mesh(flameGeo, flameMat);
-            this.nitroFlame.position.set(0, 0.2, -2.2);
-            this.nitroFlame.rotation.x = Math.PI;
-        }
+        // Nitro flame
+        const flameGeo = new THREE.ConeGeometry(0.5, 1.2, 8);
+        const flameMat = new THREE.MeshBasicMaterial({
+            color: 0xff6600,
+            transparent: true,
+            opacity: 0.9,
+            blending: THREE.AdditiveBlending
+        });
+        this.nitroFlame = new THREE.Mesh(flameGeo, flameMat);
+        this.nitroFlame.position.set(0, 0.2, -2.2);
+        this.nitroFlame.rotation.x = Math.PI;
         this.nitroFlame.visible = false;
         this.playerGroup.add(this.nitroFlame);
 
         this.scene.add(this.playerGroup);
         this.playerGroup.position.set(0, 0, 0);
+
+        // Try to load GLB model asynchronously and replace fallback
+        if (this.gltfLoader) {
+            this.gltfLoader.load(
+                'player_car.glb',
+                (gltf) => {
+                    // Remove fallback meshes
+                    const toRemove = [];
+                    this.playerGroup.children.forEach(child => {
+                        if (child.name && child.name.startsWith('fallback_')) {
+                            toRemove.push(child);
+                        }
+                    });
+                    toRemove.forEach(child => this.playerGroup.remove(child));
+                    
+                    // Add loaded model
+                    gltf.scene.traverse((node) => {
+                        if (node.isMesh) {
+                            node.castShadow = true;
+                            node.receiveShadow = true;
+                        }
+                    });
+                    this.playerGroup.add(gltf.scene);
+                    console.log('Player car model loaded successfully');
+                },
+                undefined,
+                () => console.log('Player car model not found, using fallback')
+            );
+        }
     }
 
     _setupInput() {
@@ -367,9 +305,11 @@ export class Game {
     }
 
     _onResize() {
-        this.camera.aspect = window.innerWidth / window.innerHeight;
-        this.camera.updateProjectionMatrix();
-        this.renderer.setSize(window.innerWidth, window.innerHeight);
+        if (this.camera && this.renderer) {
+            this.camera.aspect = window.innerWidth / window.innerHeight;
+            this.camera.updateProjectionMatrix();
+            this.renderer.setSize(window.innerWidth, window.innerHeight);
+        }
     }
 
     _startGame() {
@@ -405,92 +345,67 @@ export class Game {
 
     _createAICar(colorIndex) {
         const group = new THREE.Group();
-        const aiColor = colorIndex || Math.floor(Math.random() * 4);
+        const colors = [0x2255ff, 0x33cc33, 0xffaa00, 0xaa44ff];
+        const color = colors[colorIndex || 0] || 0x2255ff;
         
-        if (this.loadedModels.ai[aiColor]) {
-            const model = this.loadedModels.ai[aiColor].scene.clone();
-            model.traverse((node) => {
-                if (node.isMesh) {
-                    node.castShadow = true;
-                    node.receiveShadow = true;
-                }
-            });
-            group.add(model);
-        } else {
-            // Fallback
-            const colors = [0x2255ff, 0x33cc33, 0xffaa00, 0xaa44ff];
-            const color = colors[aiColor] || 0x2255ff;
-            const bodyGeo = new THREE.BoxGeometry(1.6, 0.6, 4);
-            const bodyMat = new THREE.MeshStandardMaterial({ color, roughness: 0.4, metalness: 0.6 });
-            const body = new THREE.Mesh(bodyGeo, bodyMat);
-            body.position.y = 0.3;
-            body.castShadow = true;
-            body.receiveShadow = true;
-            group.add(body);
+        const bodyGeo = new THREE.BoxGeometry(1.6, 0.6, 4);
+        const bodyMat = new THREE.MeshStandardMaterial({ color, roughness: 0.4, metalness: 0.6 });
+        const body = new THREE.Mesh(bodyGeo, bodyMat);
+        body.position.y = 0.3;
+        body.castShadow = true;
+        body.receiveShadow = true;
+        group.add(body);
 
-            const cabinGeo = new THREE.BoxGeometry(1.4, 0.4, 2);
-            const cabinMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.3 });
-            const cabin = new THREE.Mesh(cabinGeo, cabinMat);
-            cabin.position.set(0, 0.65, -0.2);
-            cabin.castShadow = true;
-            group.add(cabin);
+        const cabinGeo = new THREE.BoxGeometry(1.4, 0.4, 2);
+        const cabinMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.3 });
+        const cabin = new THREE.Mesh(cabinGeo, cabinMat);
+        cabin.position.set(0, 0.65, -0.2);
+        cabin.castShadow = true;
+        group.add(cabin);
 
-            const wheelGeo = new THREE.CylinderGeometry(0.35, 0.35, 0.3, 16);
-            const wheelMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
-            [[-0.85, -0.15, 1.3], [0.85, -0.15, 1.3], [-0.85, -0.15, -1.3], [0.85, -0.15, -1.3]].forEach(p => {
-                const wheel = new THREE.Mesh(wheelGeo, wheelMat);
-                wheel.rotation.z = Math.PI/2;
-                wheel.position.set(p[0], p[1], p[2]);
-                wheel.castShadow = true;
-                wheel.receiveShadow = true;
-                group.add(wheel);
-            });
-        }
+        const wheelGeo = new THREE.CylinderGeometry(0.35, 0.35, 0.3, 16);
+        const wheelMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
+        [[-0.85, -0.15, 1.3], [0.85, -0.15, 1.3], [-0.85, -0.15, -1.3], [0.85, -0.15, -1.3]].forEach(p => {
+            const wheel = new THREE.Mesh(wheelGeo, wheelMat);
+            wheel.rotation.z = Math.PI/2;
+            wheel.position.set(p[0], p[1], p[2]);
+            wheel.castShadow = true;
+            wheel.receiveShadow = true;
+            group.add(wheel);
+        });
         return group;
     }
 
     _createBoostPad() {
-        if (this.loadedTextures.boostPad) {
-            const material = new THREE.SpriteMaterial({
-                map: this.loadedTextures.boostPad,
-                blending: THREE.AdditiveBlending,
-                depthWrite: false
-            });
-            const sprite = new THREE.Sprite(material);
-            sprite.scale.set(2.5, 2.5, 1);
-            return sprite;
-        } else {
-            // Fallback
-            const canvas = document.createElement('canvas');
-            canvas.width = 64;
-            canvas.height = 64;
-            const ctx = canvas.getContext('2d');
-            ctx.fillStyle = '#ffaa00';
-            ctx.shadowColor = '#ff0';
-            ctx.shadowBlur = 15;
-            ctx.beginPath();
-            const cx = 32, cy = 32, spikes = 5, outerR = 28, innerR = 12;
-            let rot = -Math.PI / 2;
-            const step = Math.PI / spikes;
-            ctx.moveTo(cx + Math.cos(rot) * outerR, cy + Math.sin(rot) * outerR);
-            for (let i = 0; i < spikes; i++) {
-                rot += step;
-                ctx.lineTo(cx + Math.cos(rot) * innerR, cy + Math.sin(rot) * innerR);
-                rot += step;
-                ctx.lineTo(cx + Math.cos(rot) * outerR, cy + Math.sin(rot) * outerR);
-            }
-            ctx.closePath();
-            ctx.fill();
-            const texture = new THREE.CanvasTexture(canvas);
-            const material = new THREE.SpriteMaterial({
-                map: texture,
-                blending: THREE.AdditiveBlending,
-                depthWrite: false
-            });
-            const sprite = new THREE.Sprite(material);
-            sprite.scale.set(2.5, 2.5, 1);
-            return sprite;
+        const canvas = document.createElement('canvas');
+        canvas.width = 64;
+        canvas.height = 64;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#ffaa00';
+        ctx.shadowColor = '#ff0';
+        ctx.shadowBlur = 15;
+        ctx.beginPath();
+        const cx = 32, cy = 32, spikes = 5, outerR = 28, innerR = 12;
+        let rot = -Math.PI / 2;
+        const step = Math.PI / spikes;
+        ctx.moveTo(cx + Math.cos(rot) * outerR, cy + Math.sin(rot) * outerR);
+        for (let i = 0; i < spikes; i++) {
+            rot += step;
+            ctx.lineTo(cx + Math.cos(rot) * innerR, cy + Math.sin(rot) * innerR);
+            rot += step;
+            ctx.lineTo(cx + Math.cos(rot) * outerR, cy + Math.sin(rot) * outerR);
         }
+        ctx.closePath();
+        ctx.fill();
+        const texture = new THREE.CanvasTexture(canvas);
+        const material = new THREE.SpriteMaterial({
+            map: texture,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false
+        });
+        const sprite = new THREE.Sprite(material);
+        sprite.scale.set(2.5, 2.5, 1);
+        return sprite;
     }
 
     _spawnAICar() {
@@ -529,13 +444,18 @@ export class Game {
 
     animate() {
         requestAnimationFrame(() => this.animate());
-        const delta = Math.min(this.clock.getDelta(), 0.1);
+        
+        try {
+            const delta = Math.min(this.clock.getDelta(), 0.1);
 
-        if (this.state === 'playing') {
-            this._update(delta);
+            if (this.state === 'playing') {
+                this._update(delta);
+            }
+
+            this.renderer.render(this.scene, this.camera);
+        } catch (error) {
+            console.error('Animation error:', error);
         }
-
-        this.renderer.render(this.scene, this.camera);
     }
 
     _update(delta) {
@@ -562,11 +482,13 @@ export class Game {
             this.nitroFuel = Math.min(this.nitroMax, this.nitroFuel + this.fuelRecharge * delta);
         }
         this.nitroFlame.visible = this.nitroActive;
-        if (this.nitroActive) {
+        if (this.nitroActive && this.nitroFlame.scale) {
             this.nitroFlame.scale.setScalar(0.8 + Math.sin(Date.now() * 0.05) * 0.3);
         }
 
-        this.roadTexture.offset.y += currentSpeed * delta * 0.05;
+        if (this.roadTexture) {
+            this.roadTexture.offset.y += currentSpeed * delta * 0.05;
+        }
 
         for (let i = this.aiCars.length - 1; i >= 0; i--) {
             const ai = this.aiCars[i];
@@ -621,9 +543,9 @@ export class Game {
         }
 
         this.score += currentSpeed * delta * 0.2;
-        this.speedEl.textContent = `Speed: ${Math.floor(currentSpeed)} km/h`;
+        if (this.speedEl) this.speedEl.textContent = `Speed: ${Math.floor(currentSpeed)} km/h`;
         const fuelPercent = (this.nitroFuel / this.nitroMax) * 100;
-        this.nitroBar.style.width = `${fuelPercent}%`;
-        this.scoreEl.textContent = `Score: ${Math.floor(this.score)}`;
+        if (this.nitroBar) this.nitroBar.style.width = `${fuelPercent}%`;
+        if (this.scoreEl) this.scoreEl.textContent = `Score: ${Math.floor(this.score)}`;
     }
 }
